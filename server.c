@@ -1,66 +1,39 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h> //Used by read()
-#include <string.h> //String manipulation
-#include <stdbool.h>
-
-
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <netinet/in.h>
-
-
-#define COM_PORT 12345
-#define BUFF_SIZE 4096
-#define BUFF_SIZE_SMALL 1024
-#define BUFF_MAX_SIZE 2000000000 // 2MB
-#define QUEUE_SIZE 10
-#define START_INDEX 5
-
-#define HTTP_OK_MESSAGE "HTTP/1.1 200 OK\r\n"
-#define HTTP_NOT_FOUND_RESPONSE "HTTP/1.1 404 NOT FOUND\r\n"
-#define HTTP_INTERNAL_ERROR_RESPONSE "HTTP/1.1 500 INTERNAL SERVER ERROR\r\n"
-
-#define HTTP_CONTENT_JPEG "Content-Type: image/jpeg\r\n\r\n"
-#define HTTP_CONTENT_GIF "Content-Type: image/gif\r\n\r\n"
-#define HTTP_CONTENT_TEXTFILE "Content-Type: text/html; charset=UTF-8\r\n\r\n"
-
-#define tr_shoot 1 //Troubleshooting, 1 - Activated -> Extra prints in terminal
-
-char *buildReturnMessage(char *statusLine, char *contentType, char *fileBuffer, long *fileSize);
-char * getFileName(char *requestLine);
-bool hasFileType(char *resourceLine, int sizeOfresource);
-char *getFileType(char *fileName, int sizeFileName);
-int errorMessage(char *errorType, int error);
-int getRequestLine(char *buffer, char *requestBuffer);
-int closeSocket(int socket);
-void troubleShoot(char * typeText, char *text);
-char *readFile(FILE *fp, long *size);
+#include "server.h"
 
 int main()
 {
      
-    int server_socket; //Server socket
-    int client_socket; //Client socket
+    int server_socket = 0; //Server socket
+    int client_socket = 0; //Client socket
 
     int opt = 1; //Option level
     struct sockaddr_in address; 
     int addressSize = sizeof(address);
 
     //Buffers
-    char buffer[BUFF_SIZE];
-    char requestBuffer[BUFF_SIZE];
-    char *methodLine; //NEEDS FREE
-    char *resourceLine; //NEEDS FREE
-    char *fileTypeLine; //NEEDS FREE
+    char buffer[BUFF_SIZE] = {""};
+    char requestBuffer[BUFF_SIZE] = {""};
+    char *methodLine = NULL; 
+    char *resourceLine = NULL; 
+    char *fileTypeLine = NULL; 
 
     FILE *fp;
+    
+    long *fileSize = malloc(sizeof(long));
+    char *fileBuffer = NULL;
+
+    char *returnMessage = NULL;
+    char *httpText = NULL;
+                    
+    int okSize = 0;
+    int contentSize = 0;
+    long *totalSize = malloc(sizeof(long));
 
     //1. Create socket
     errorMessage("Create socket", server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
     
     //Makes sure that server port and adress are reusable
-    setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt));
+    errorMessage("SetsocketOpt", setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)));
     //Create address for server socket
     address.sin_family = AF_INET;
     address.sin_port = htons( COM_PORT );
@@ -84,7 +57,7 @@ int main()
             memset(requestBuffer, 0, BUFF_SIZE-1);
 
             printf("-----------------------------------\n");
-            printf("\nSuccessfully accepted request\n");
+            printf("Successfully accepted request\n");
 
             //Reads buffer from socket
             read(client_socket, buffer, BUFF_SIZE-1);
@@ -96,148 +69,195 @@ int main()
                 if(strncmp(requestBuffer, "GET", 3) == 0)
                 {
                     /* Extracts file name and checks if it exists on server */
-                    resourceLine = getFileName(requestBuffer);
-                    if(strlen(resourceLine) == 0){
-                        //No resource asked for
-                        //RETURNA 404
-                    } 
-                    fp = fopen(resourceLine, "rb");
-                    if(fp == NULL)
-                    {
-                        printf("\nUnable to open file\n");
-                        //RETURNA 404
-                    }
+                    resourceLine = getFileName(requestBuffer); //Gets file name
+                    fileBuffer = findReadFile(resourceLine, fileSize); //Attempts to read file
 
-                    /* Extracts file type if it exists */
-                    if(hasFileType(resourceLine, strlen(resourceLine)))
-                    {
-                        fileTypeLine = getFileType(resourceLine, strlen(resourceLine));
+                    if(fileBuffer == NULL){
+                        printf("File not FOUND\n");
+                        prepNotFound(&httpText, &fileBuffer, fileSize);
                     }else
                     {
+                        /* Extracts file type if it exists */
+                        if(hasFileType(resourceLine, strlen(resourceLine)))
+                        {
+                            fileTypeLine = getFileType(resourceLine, strlen(resourceLine));
+                            okSize = strlen(HTTP_OK_MESSAGE);
+                            httpText = calloc(okSize + 1, sizeof(char));
+                            strcat(httpText, HTTP_OK_MESSAGE);
+
+                            /* Checks filetype and runns correct HTTP structure*/
+                            if(strcmp(fileTypeLine, "jpg") == 0 | strcmp(fileTypeLine, "jpeg") == 0)
+                            {
+                                /* IMAGES */
+                                printf("Sending image %s\n", resourceLine);
+                                contentSize = strlen(HTTP_CONTENT_JPEG);
+                                httpText = realloc(httpText, okSize + contentSize + 1);
+                                strcat(httpText, HTTP_CONTENT_JPEG);
+
+                            }else if(strcmp(fileTypeLine, "gif") == 0)
+                            {
+                                /* GIFS */
+                                printf("Sending GIF %s\n", resourceLine);
+                                contentSize = strlen(HTTP_CONTENT_GIF);
+                                httpText = realloc(httpText, okSize + contentSize +1);
+                                strcat(httpText, HTTP_CONTENT_GIF);
+
+                            }
+                            else if(strcmp(fileTypeLine, "txt") == 0)
+                            {
+                                /* TEXT */
+                                printf("Sending file %s\n", resourceLine);
+                                contentSize = strlen(HTTP_CONTENT_TEXTFILE);
+                                httpText = realloc(httpText, okSize + contentSize + 1);
+                                strcat(httpText, HTTP_CONTENT_TEXTFILE);
+
+                            } else
+                            {
+                                /* NOT FOUND */
+                                printf("Filetype not supported\n");
+                                prepNotFound(&httpText, &fileBuffer, fileSize);
+                            }
+
+                        /*If file has no filetype*/
+                        }else
+                        {
                         
-                        printf("\nFile has no filetype, what to do here");
-                        //RETURNA 404
+                            printf("File has no filetype, what to do here\n");
+                            prepNotFound(&httpText, &fileBuffer, fileSize);
+                        }
                     }
-
-                    long *fileSize = malloc(sizeof(long));
-                    char *fileBuffer = readFile(fp, fileSize);
-                    char *returnMessage;
-                    
-                    int okSize = strlen(HTTP_OK_MESSAGE);
-                    int contentSize;
-                    long totalSize;
-
-                    /* Checks filetype and runns correct HTTP structure*/
-                    if(strcmp(fileTypeLine, "jpg") == 0 | strcmp(fileTypeLine, "jpeg") == 0)
-                    {
-                        /* IMAGES */
-                        printf("Sending image %s\n", resourceLine);
-
-
-                        contentSize = strlen(HTTP_CONTENT_JPEG);
-                        totalSize = *fileSize + okSize + contentSize;
-                        returnMessage = malloc(totalSize);
-                        memcpy(returnMessage, HTTP_OK_MESSAGE, okSize); //Adds status line
-                        memcpy(returnMessage + okSize, HTTP_CONTENT_JPEG, contentSize); //Adds header content line
-                        memcpy(returnMessage + (okSize + contentSize), fileBuffer, *fileSize); //Adds file binary content
-                        
-                        buildReturnMessage(HTTP_OK_MESSAGE, HTTP_CONTENT_JPEG, fileBuffer, fileSize);
-
-                        send(client_socket, returnMessage, totalSize+1, 0); //Sends whole entity of http response
-
-                    }else if(strcmp(fileTypeLine, "gif") == 0)
-                    {
-                        /* GIFS */
-                        printf("Sending GIF %s\n", resourceLine);
-                    }
-                    else if(strcmp(fileTypeLine, "txt") == 0)
-                    {
-                        /* TEXT */
-                        printf("\nSending file %s\n", resourceLine);
-                    } else
-                    {
-                        /* NOT FOUND */
-                        printf("\n404 NOT FOUND");
-                    }
-                    
-                    
-                    
-
-                    //fileTypeLine = getFileType(resourceLine);
-
-                    /*
-                    * 1. Kontrollera vilken fil som eftersöks
-                    * 2. Sök efter filen
-                    * 3. Om filen finns - Switch case
-                    * 4. Om filen inte finns - 404 NOT FOUND
-                    */
-
-
-                    //Create return message
-                    //memset(responseBuffer, 0, sizeof(responseBuffer));
-
-                    //strcpy(responseBuffer, okMessage);
-
-
-
-
-
                 }
+                /* If requestline is not of GETTER format - Not supported */
                 else
                 {
-                    printf("\nRequestline is not a getter. Closing socket - Returning %s\n", HTTP_INTERNAL_ERROR_RESPONSE);
+                    printf("Requestline is not a getter. Closing socket - Returning %s\n", HTTP_INTERNAL_ERROR_RESPONSE);
                     //Sends error message if request method is not a GET
-                    send(client_socket, HTTP_INTERNAL_ERROR_RESPONSE, strlen(HTTP_INTERNAL_ERROR_RESPONSE), 0);
+                    prepNotFound(&httpText, &fileBuffer, fileSize);
                 }
-            
             } else
             {
                 printf("Unable to read requestline\n");
+                //Internal server error
+                prepNotFound(&httpText, &fileBuffer, fileSize);
+
             }
+
+            if(httpText != NULL)
+            {
+                returnMessage = buildReturnMessage(httpText, fileBuffer, fileSize, totalSize);
+                free(httpText);
+            }
+            else
+            {
+                printf("Unable to create HTTP response..\n");
+            }
+            
+
+            
+            send(client_socket, returnMessage, *totalSize, 0);
+            free(fileBuffer);
+            free(returnMessage);
+            httpText = NULL;
+            free(resourceLine);
+            free(fileTypeLine);
 
             //Closes client side socket
             printf("\nClosing connection\n");
             printf("-----------------------------------\n");
-            closeSocket(client_socket);
+            close(client_socket);
         }
 
     }
-
     shutdown(server_socket, SHUT_RDWR);
+    printf("\nRELEASE ME\n");
+    free(methodLine);
+    free(resourceLine);
+    free(fileTypeLine);
+    free(fileSize);
+    
     return 0;
 }
 
-char *buildReturnMessage(char *statusLine, char *contentType, char *fileBuffer, long *fileSize)
+
+/*
+    Prepares statusline, contentype and filebuffer for 404 Not found
+*/
+void prepNotFound(char **requestPointer, char**filePointer, long *fileSize)
 {
-    int statusSize = strlen(statusLine);
-    int contentTypeSize = strlen(contentType);
+    int errorSize = strlen(HTTP_NOT_FOUND_RESPONSE);
+    int contentSize = strlen(HTTP_CONTENT_TEXTFILE);
 
-    long totalSize = statusSize + contentTypeSize + *fileSize;
-    
-
-    if(totalSize < BUFF_MAX_SIZE)
+    if(*requestPointer == NULL)
     {
-        troubleShoot("Build return message", "Size allowed by threshold");
-
+        troubleShoot("PNF NULL", *requestPointer);
+        *requestPointer = calloc(errorSize + contentSize + 1, sizeof(char));
+    }else
+    {
+        troubleShoot("PNF NOT NULL", *requestPointer);
+        printf("\nPointer is: %p", *requestPointer);
+        *requestPointer = realloc(*requestPointer, errorSize + contentSize + 1);
+        
     }
     
+    strcat(*requestPointer, HTTP_NOT_FOUND_RESPONSE);
+    strcat(*requestPointer, HTTP_CONTENT_TEXTFILE);
+
+
+    *filePointer = findReadFile(FILE_NOT_FOUND, fileSize);
+    if(*filePointer == NULL)
+    {
+        printf("\nError file not found");
+    }
 
 }
 
 
 
-
-/*  Closes wanted socket*/
-int closeSocket(int socket)
+/*
+    Concatenates statusline, headerlines and file to one pointer to be sent in socket. 
+    stateAndContent: Status line + all header lines
+    fileBuffer: Allready read file
+    fileSize: Size of filebuffer
+    totalSize: Recievied total size for socket send
+*/
+char *buildReturnMessage(char *stateAndContent, char *fileBuffer, long *fileSize, long *totalSize)
 {
-    close(socket);
+    long textSize = strlen(stateAndContent);
+    *totalSize = textSize + *fileSize;
+
+    if(*totalSize < BUFF_MAX_SIZE)
+    {
+        troubleShoot("Build return message", "Size allowed by threshold");
+        char *returnMessage = malloc(*totalSize);
+        if(returnMessage == NULL)
+        {
+            printf("\nUnable to allocate returnM\n");
+        }
+        
+        memcpy(returnMessage, stateAndContent, textSize); //Adds http message
+        memcpy(returnMessage + textSize, fileBuffer, *fileSize); //Adds file content
+
+        return returnMessage;
+
+    }else
+    {
+        troubleShoot("Build return message", "Size not allowed by threshold");
+        return NULL;
+    }
+    
+    
+
 }
 
 
+/*
+    Returnes whole filename
+*/
 char * getFileName(char *requestLine)
 {
     int i = 5; //Magic number for resource
     char *resourceLine = malloc(BUFF_SIZE_SMALL);
+    memset(resourceLine, 0, BUFF_SIZE_SMALL);
     strcpy(resourceLine, "");
     char *middleMan = " ";
 
@@ -250,6 +270,9 @@ char * getFileName(char *requestLine)
     return resourceLine;
 }
 
+/*
+    Returns true if filename is separated by "." to indicate that a filetype exists
+*/
 bool hasFileType(char *resourceLine, int sizeOfresource)
 {
     int i;
@@ -267,9 +290,12 @@ bool hasFileType(char *resourceLine, int sizeOfresource)
     return hasFileType;
 }
 
+/*
+    gets the specific filetype. Returns 
+*/
 char *getFileType(char *fileName, int sizeFileName)
 {
-    char *returnBuff = malloc(BUFF_SIZE_SMALL);
+    char *returnBuff = malloc(BUFF_SIZE_SMALL + 1);
     strcpy(returnBuff, "");
     char *dot = ".";
     int i;
@@ -339,82 +365,40 @@ void troubleShoot(char * typeText, char *text)
 }
 
 
-char *readFile(FILE *fp, long *size)
+/*
+    Finds and returns allocated pointer with file. Returns NULL if not found
+*/
+char *findReadFile(char *fileName, long *size)
 {
+
+    FILE *fp = fopen(fileName, "rb");
+    if(fp == NULL) return NULL;
+
     fseek(fp, 0, SEEK_END);
     long localSize = ftell(fp);
     rewind(fp);
 
-    char *fileBuffer = malloc(localSize+1);
+    char *fileBuffer = calloc(localSize + 1, sizeof(char));
     *size = localSize+1;
 
-    int result = fread(fileBuffer, 1, localSize, fp);
+
+    int result = fread(fileBuffer, 1, localSize, fp); 
+
+    fclose(fp);
 
     if(result != localSize)
     {
-        printf("\nUnable to read file");
-        return "error";
+        troubleShoot("Readfile", "Unable to read file - NULL");
+        return NULL;
     }else
     {
-        printf("\nReturning file");
+        troubleShoot("Readfile", "Successfully read file");
         return fileBuffer;
     }
     
 }
 
-
-
-//TEXT FILE TRANSFER
-                    /*
-                    strcat(responseBuffer, contentText);
-                    //strcat(responseBuffer, "Message goes here\r\n");
-
-                    printf("\nResponseBuffer: \n%s\n", responseBuffer);
-                    FILE *fd = fopen("text.txt", "r");
-                    char fileread[BUFF_SIZE];
-
-                    int result = fread(fileread, BUFF_SIZE, 1, fd);
-                    printf("\nResult is: %s\n", fileread);
-
-                    printf("\nRead %i bytes", result);
-                    fclose(fd);
-
-                    strcat(responseBuffer, fileread);
-                    */
-
-
-
 /*
-                    }else
-                    {
-                        fseek(fp, 0, SEEK_END); //Moves to end of file for size
-                        long fileSize = ftell(fp);
-                        fseek(fp, 0, SEEK_SET); //Moves pointer to the beginning again
-                        printf("\nSize of file is: %li", fileSize);
-
-                        char *fileBuffer = malloc(fileSize + 1);
-
-                        int result = fread(fileBuffer, 1, fileSize, fp);
-                        printf("\nResult from read is: %i", result);
-
-                        if(result != fileSize)
-                        {
-                            printf("\nFile was not read correctly");
-                        } else
-                        {
-                            printf("\nFile was read correctly. Putting together file");
-                            printf("\nRefixing size of responseBuffer to: %li", fileSize);
-                            long totalSize = (fileSize + strlen(okMessage) + strlen(contentImageJpeg));
-                            char *responseBuffer = malloc(totalSize);
-                            printf("\nTotal size is: %li", totalSize);
-
-                            memcpy(responseBuffer, okMessage, strlen(okMessage));
-                            memcpy(responseBuffer + strlen(okMessage), contentImageJpeg, strlen(contentImageJpeg));
-                            printf("\nBuffer is: \n%s\n", responseBuffer);
-
-                            memcpy(responseBuffer +(strlen(okMessage) + strlen(contentImageJpeg)), fileBuffer, fileSize);
-
-                            send(client_socket, responseBuffer, totalSize, 0);
-                        }
-                    }
-                    */
+    3. Flytta ut saker till h-fil
+    4. Ska vi flytta över filhantering/stringman till andra filer?
+*/
