@@ -20,6 +20,7 @@
 
 /* HTTP RESPONSES */
 #define FILE_NOT_FOUND "notfound.txt"
+#define HTML_INDEX_PAGE "index.html"
 
 #define HTTP_OK_MESSAGE "HTTP/1.1 200 OK\r\n"
 #define HTTP_NOT_FOUND_RESPONSE "HTTP/1.1 404 NOT FOUND\r\n"

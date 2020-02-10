@@ -1,5 +1,14 @@
 #include "server.h"
 
+/*
+DISCLAIMER: 
+Inspiration for code found from mthe playlist:
+https://www.youtube.com/watch?v=bdIiTxtMaKA&list=PL9IEJIKnBJjH_zM5LnovnoaKlXML5qh17
+
+
+
+*/
+
 int main()
 {
      
@@ -72,6 +81,7 @@ int main()
                     resourceLine = getFileName(requestBuffer); //Gets file name
                     fileBuffer = findReadFile(resourceLine, fileSize); //Attempts to read file
 
+
                     if(fileBuffer == NULL){
                         printf("File not FOUND\n");
                         prepNotFound(&httpText, &fileBuffer, fileSize);
@@ -103,7 +113,7 @@ int main()
                                 strcat(httpText, HTTP_CONTENT_GIF);
 
                             }
-                            else if(strcmp(fileTypeLine, "txt") == 0)
+                            else if(strcmp(fileTypeLine, "txt") == 0 | strcmp(fileTypeLine, "html") == 0)
                             {
                                 /* TEXT */
                                 printf("Sending file %s\n", resourceLine);
@@ -169,7 +179,7 @@ int main()
 
     }
     shutdown(server_socket, SHUT_RDWR);
-    printf("\nRELEASE ME\n");
+    printf("\nRELEASE ME\n"); 
     free(methodLine);
     free(resourceLine);
     free(fileTypeLine);
@@ -266,6 +276,8 @@ char * getFileName(char *requestLine)
         resourceLine[i-5] = requestLine[i];
         i++;
     }
+
+    resourceLine[i] = '\0';
     troubleShoot("Get file name", resourceLine);
     return resourceLine;
 }
@@ -398,7 +410,3 @@ char *findReadFile(char *fileName, long *size)
     
 }
 
-/*
-    3. Flytta ut saker till h-fil
-    4. Ska vi flytta över filhantering/stringman till andra filer?
-*/
