@@ -2,7 +2,7 @@
 
 /*
 DISCLAIMER: 
-Inspiration for code found from mthe playlist:
+Inspiration for code found from the playlist:
 https://www.youtube.com/watch?v=bdIiTxtMaKA&list=PL9IEJIKnBJjH_zM5LnovnoaKlXML5qh17
 
 
@@ -127,7 +127,6 @@ int main()
                                 printf("Filetype not supported\n");
                                 prepNotFound(&httpText, &fileBuffer, fileSize);
                             }
-
                         /*If file has no filetype*/
                         }else
                         {
@@ -149,12 +148,13 @@ int main()
                 printf("Unable to read requestline\n");
                 //Internal server error
                 prepNotFound(&httpText, &fileBuffer, fileSize);
-
             }
 
+            //Makes sure that the httpText contains data to send
             if(httpText != NULL)
             {
                 returnMessage = buildReturnMessage(httpText, fileBuffer, fileSize, totalSize);
+                send(client_socket, returnMessage, *totalSize, 0);
                 free(httpText);
             }
             else
@@ -163,8 +163,7 @@ int main()
             }
             
 
-            
-            send(client_socket, returnMessage, *totalSize, 0);
+            //Unecessary frees for this program. But works for now. 
             free(fileBuffer);
             free(returnMessage);
             httpText = NULL;
@@ -265,7 +264,7 @@ char *buildReturnMessage(char *stateAndContent, char *fileBuffer, long *fileSize
 */
 char * getFileName(char *requestLine)
 {
-    int i = 5; //Magic number for resource
+    int i = START_INDEX; //Magic number for resource
     char *resourceLine = malloc(BUFF_SIZE_SMALL);
     memset(resourceLine, 0, BUFF_SIZE_SMALL);
     strcpy(resourceLine, "");

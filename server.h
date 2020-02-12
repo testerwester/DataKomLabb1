@@ -31,10 +31,11 @@
 #define HTTP_CONTENT_TEXTFILE "Content-Type: text/html; charset=UTF-8\r\n\r\n"
 
 /*  Trouble shooting */
-#define tr_shoot 1 //Troubleshooting, 1 - Activated -> Extra prints in terminal
+#define tr_shoot 0 //Troubleshooting, 1 = Activated -> More information in terminal
 
 
 /*  Function declarations */
+
 void prepNotFound(char **requestPointer, char**filePointer, long *fileSize);
 char *buildReturnMessage(char *stateAndContent, char *fileBuffer, long *fileSize, long *totalSize);
 char * getFileName(char *requestLine);
